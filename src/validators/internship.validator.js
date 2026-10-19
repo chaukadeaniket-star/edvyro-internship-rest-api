@@ -61,7 +61,12 @@ export const patchInternshipSchema = z
 
 // Validate internship IDs in route parameters.
 export const internshipIdSchema = z.object({
-  id: z.string().regex(/^[a-f\d]{24}$/i, "Invalid internship ID"),
+  id: z
+    .string()
+    .regex(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+      "Invalid internship ID",
+    ),
 });
 
 // Validate pagination, filtering, and sorting query parameters.

@@ -1,0 +1,384 @@
+openapi: 3.1.0
+info:
+  title: EdVyro Internship REST API
+  version: 1.0.0
+  description: REST API for internship listings backed by PostgreSQL.
+servers:
+  - url: http://localhost:5000/api/v1
+paths:
+  /health:
+    get:
+      summary: Check API health
+      responses:
+        "200":
+          description: API is running
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, message, requestId, timestamp]
+                properties:
+                  success:
+                    type: boolean
+                    const: true
+                  message:
+                    type: string
+                    example: EdVyro REST API is running
+                  requestId:
+                    type: string
+                    format: uuid
+                  timestamp:
+                    type: string
+                    format: date-time
+  /internships:
+    post:
+      summary: Create an internship
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InternshipInput"
+      responses:
+        "201":
+          description: Internship created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InternshipResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/ServerError"
+    get:
+      summary: List internships
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 10
+        - name: search
+          in: query
+          description: Substring search in title, company, domain, and description.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 100
+        - name: domain
+          in: query
+          schema:
+            type: string
+            minLength: 1
+        - name: location
+          in: query
+          schema:
+            type: string
+            minLength: 1
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, closed]
+        - name: sortBy
+          in: query
+          schema:
+            type: string
+            enum: [createdAt, title, stipend]
+            default: createdAt
+        - name: order
+          in: query
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: desc
+      responses:
+        "200":
+          description: Matching internships and pagination metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InternshipListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /internships/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      summary: Get an internship by UUID
+      responses:
+        "200":
+          description: Internship found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InternshipResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/ServerError"
+    patch:
+      summary: Update supplied internship fields
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InternshipPatch"
+      responses:
+        "200":
+          description: Internship partially updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InternshipResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/ServerError"
+    put:
+      summary: Replace writable internship fields
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InternshipInput"
+      responses:
+        "200":
+          description: Internship replaced
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InternshipResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/ServerError"
+    delete:
+      summary: Delete an internship
+      responses:
+        "200":
+          description: Internship deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/ServerError"
+components:
+  schemas:
+    InternshipInput:
+      type: object
+      additionalProperties: false
+      required: [title, company, domain, location, duration, stipend, description, status]
+      properties:
+        title:
+          type: string
+          minLength: 3
+          maxLength: 100
+        company:
+          type: string
+          minLength: 2
+          maxLength: 100
+        domain:
+          type: string
+          minLength: 2
+          maxLength: 100
+        location:
+          type: string
+          minLength: 2
+          maxLength: 100
+        duration:
+          type: string
+          minLength: 1
+          maxLength: 50
+        stipend:
+          type: number
+          minimum: 0
+        description:
+          type: string
+          minLength: 10
+          maxLength: 2000
+        status:
+          type: string
+          enum: [active, closed]
+    InternshipPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        title:
+          type: string
+          minLength: 3
+          maxLength: 100
+        company:
+          type: string
+          minLength: 2
+          maxLength: 100
+        domain:
+          type: string
+          minLength: 2
+          maxLength: 100
+        location:
+          type: string
+          minLength: 2
+          maxLength: 100
+        duration:
+          type: string
+          minLength: 1
+          maxLength: 50
+        stipend:
+          type: number
+          minimum: 0
+        description:
+          type: string
+          minLength: 10
+          maxLength: 2000
+        status:
+          type: string
+          enum: [active, closed]
+    Internship:
+      allOf:
+        - $ref: "#/components/schemas/InternshipInput"
+        - type: object
+          required: [_id, createdAt, updatedAt]
+          properties:
+            _id:
+              type: string
+              format: uuid
+            createdAt:
+              type: string
+              format: date-time
+            updatedAt:
+              type: string
+              format: date-time
+    InternshipResponse:
+      type: object
+      required: [success, message, data, requestId]
+      properties:
+        success:
+          type: boolean
+          const: true
+        message:
+          type: string
+        data:
+          $ref: "#/components/schemas/Internship"
+        requestId:
+          type: string
+          format: uuid
+    InternshipListResponse:
+      type: object
+      required: [success, message, data, pagination, requestId]
+      properties:
+        success:
+          type: boolean
+          const: true
+        message:
+          type: string
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Internship"
+        pagination:
+          type: object
+          required: [page, limit, totalRecords, totalPages, hasNextPage, hasPreviousPage]
+          properties:
+            page:
+              type: integer
+            limit:
+              type: integer
+            totalRecords:
+              type: integer
+            totalPages:
+              type: integer
+            hasNextPage:
+              type: boolean
+            hasPreviousPage:
+              type: boolean
+        requestId:
+          type: string
+          format: uuid
+    MessageResponse:
+      type: object
+      required: [success, message, requestId]
+      properties:
+        success:
+          type: boolean
+          const: true
+        message:
+          type: string
+        requestId:
+          type: string
+          format: uuid
+    ErrorResponse:
+      type: object
+      required: [success, error, requestId]
+      properties:
+        success:
+          type: boolean
+          const: false
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details:
+              type: array
+              items:
+                type: object
+                required: [field, message]
+                properties:
+                  field:
+                    type: string
+                  message:
+                    type: string
+        requestId:
+          type: [string, "null"]
+  responses:
+    BadRequest:
+      description: Invalid request data or UUID
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    NotFound:
+      description: Route or internship not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    ServerError:
+      description: Unexpected server or database error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"

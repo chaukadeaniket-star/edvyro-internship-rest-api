@@ -1,5 +1,6 @@
 // Import internship repository functions.
 import * as internshipRepository from "../repositories/internship.repository.js";
+import { getPaginationOptions } from "../utils/pagination.js";
 
 // Create a new internship.
 export const createInternship = async (internshipData) => {
@@ -8,10 +9,7 @@ export const createInternship = async (internshipData) => {
 
 // Retrieve internships with pagination, filtering, and sorting.
 export const getAllInternships = async (query) => {
-  // Calculate pagination values.
-  const page = Math.max(1, Number.parseInt(query.page, 10) || 1);
-
-  const limit = Math.min(100, Math.max(1, Number.parseInt(query.limit, 10) || 10));
+  const { page, limit } = getPaginationOptions(query);
 
   // Prepare filters.
   const filters = {};

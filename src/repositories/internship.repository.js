@@ -1,15 +1,81 @@
-// Import Mongoose for database operations.
-import mongoose from "mongoose";
+import { randomUUID } from "node:crypto";
+import { pool } from "../config/database.js";
+import { internshipFieldColumns, mapInternshipRow } from "../models/internship.model.js";
+import ApiError from "../utils/ApiError.js";
 
-// Import the Internship model.
-import Internship from "../models/internship.model.js";
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const sortColumns = Object.freeze({
+  createdAt: "created_at",
+  title: "title",
+  stipend: "stipend",
+});
+const returningColumns =
+  "id, title, company, domain, location, duration, stipend, description, status, created_at, updated_at";
 
-// Create a new internship.
-export const createInternship = async (internshipData) => {
-  return await Internship.create(internshipData);
+const validateId = (id) => {
+  if (!uuidPattern.test(id)) {
+    throw new ApiError(400, "Invalid internship ID");
+  }
 };
 
-// Retrieve internships with pagination, filtering, searching, and sorting.
+const throwIfMissing = (row) => {
+  if (!row) {
+    throw new ApiError(404, "Internship not found");
+  }
+};
+
+const buildWhereClause = (filters) => {
+  const clauses = [];
+  const values = [];
+  const addValue = (value) => {
+    values.push(value);
+    return `$${values.length}`;
+  };
+
+  if (filters.domain) {
+    clauses.push(`LOWER(domain) = LOWER(${addValue(filters.domain)})`);
+  }
+
+  if (filters.location) {
+    clauses.push(`LOWER(location) = LOWER(${addValue(filters.location)})`);
+  }
+
+  if (filters.status) {
+    clauses.push(`status = ${addValue(filters.status)}`);
+  }
+
+  if (filters.search) {
+    const searchParameter = addValue(filters.search);
+    clauses.push(
+      `(POSITION(LOWER(${searchParameter}) IN LOWER(title)) > 0
+        OR POSITION(LOWER(${searchParameter}) IN LOWER(company)) > 0
+        OR POSITION(LOWER(${searchParameter}) IN LOWER(domain)) > 0
+        OR POSITION(LOWER(${searchParameter}) IN LOWER(description)) > 0)`,
+    );
+  }
+
+  return {
+    sql: clauses.length ? `WHERE ${clauses.join(" AND ")}` : "",
+    values,
+  };
+};
+
+export const createInternship = async (internshipData) => {
+  const fields = Object.keys(internshipFieldColumns);
+  const values = fields.map((field) => internshipData[field]);
+  const placeholders = fields.map((_, index) => `$${index + 2}`);
+  const columns = fields.map((field) => internshipFieldColumns[field]);
+
+  const { rows } = await pool.query(
+    `INSERT INTO internships (id, ${columns.join(", ")})
+     VALUES ($1, ${placeholders.join(", ")})
+     RETURNING ${returningColumns}`,
+    [randomUUID(), ...values],
+  );
+
+  return mapInternshipRow(rows[0]);
+};
+
 export const getAllInternships = async ({
   page = 1,
   limit = 10,
@@ -17,151 +83,81 @@ export const getAllInternships = async ({
   sortBy = "createdAt",
   order = "desc",
 }) => {
-  // Prepare the database query.
-  const query = {};
+  const { sql: whereClause, values } = buildWhereClause(filters);
+  const sortColumn = sortColumns[sortBy] ?? sortColumns.createdAt;
+  const sortDirection = order === "asc" ? "ASC" : "DESC";
 
-  // Filter internships by domain.
-  if (filters.domain) {
-    query.domain = {
-      $regex: `^${escapeRegex(filters.domain)}$`,
-      $options: "i",
-    };
-  }
-
-  // Filter internships by location.
-  if (filters.location) {
-    query.location = {
-      $regex: `^${escapeRegex(filters.location)}$`,
-      $options: "i",
-    };
-  }
-
-  // Filter internships by status.
-  if (filters.status) {
-    query.status = filters.status;
-  }
-
-  // Search across relevant internship fields.
-  if (filters.search) {
-    const searchTerm = escapeRegex(filters.search);
-
-    query.$or = [
-      { title: { $regex: searchTerm, $options: "i" } },
-      { company: { $regex: searchTerm, $options: "i" } },
-      { domain: { $regex: searchTerm, $options: "i" } },
-      { description: { $regex: searchTerm, $options: "i" } },
-    ];
-  }
-
-  // Count matching internships for pagination.
-  const totalRecords = await Internship.countDocuments(query);
-
-  // Retrieve the requested page.
-  const data = await Internship.find(query)
-    .sort({
-      [sortBy]: order === "asc" ? 1 : -1,
-      _id: 1,
-    })
-    .skip((page - 1) * limit)
-    .limit(limit)
-    .lean();
+  const countResult = await pool.query(
+    `SELECT COUNT(*)::bigint AS total FROM internships ${whereClause}`,
+    values,
+  );
+  const offset = (page - 1) * limit;
+  const dataResult = await pool.query(
+    `SELECT ${returningColumns}
+     FROM internships
+     ${whereClause}
+     ORDER BY ${sortColumn} ${sortDirection}, id ASC
+     LIMIT $${values.length + 1} OFFSET $${values.length + 2}`,
+    [...values, limit, offset],
+  );
 
   return {
-    data,
-    totalRecords,
+    data: dataResult.rows.map(mapInternshipRow),
+    totalRecords: Number(countResult.rows[0].total),
   };
 };
 
-// Retrieve a single internship by ID.
 export const getInternshipById = async (id) => {
-  // Validate the MongoDB ObjectId.
-  validateObjectId(id);
+  validateId(id);
 
-  const internship = await Internship.findById(id).lean();
-
-  // Return 404 when the internship does not exist.
-  if (!internship) {
-    const error = new Error("Internship not found");
-    error.statusCode = 404;
-    throw error;
-  }
-
-  return internship;
-};
-
-// Replace an existing internship using PUT.
-export const updateInternship = async (id, internshipData) => {
-  // Validate the MongoDB ObjectId.
-  validateObjectId(id);
-
-  // Replace the existing document while preserving its ID.
-  const internship = await Internship.findOneAndReplace({ _id: id }, internshipData, {
-    new: true,
-    runValidators: true,
-  }).lean();
-
-  // Return 404 when the internship does not exist.
-  if (!internship) {
-    const error = new Error("Internship not found");
-    error.statusCode = 404;
-    throw error;
-  }
-
-  return internship;
-};
-
-// Partially update an existing internship using PATCH.
-export const patchInternship = async (id, internshipData) => {
-  // Validate the MongoDB ObjectId.
-  validateObjectId(id);
-
-  const internship = await Internship.findByIdAndUpdate(
+  const { rows } = await pool.query(`SELECT ${returningColumns} FROM internships WHERE id = $1`, [
     id,
-    { $set: internshipData },
-    {
-      new: true,
-      runValidators: true,
-    },
-  ).lean();
+  ]);
+  throwIfMissing(rows[0]);
 
-  // Return 404 when the internship does not exist.
-  if (!internship) {
-    const error = new Error("Internship not found");
-    error.statusCode = 404;
-    throw error;
-  }
-
-  return internship;
+  return mapInternshipRow(rows[0]);
 };
 
-// Delete an internship by ID.
-export const deleteInternship = async (id) => {
-  // Validate the MongoDB ObjectId.
-  validateObjectId(id);
+const updateInternshipFields = async (id, internshipData) => {
+  validateId(id);
 
-  const internship = await Internship.findByIdAndDelete(id);
+  const fields = Object.keys(internshipData);
+  const columns = fields.map((field) => internshipFieldColumns[field]);
 
-  // Return 404 when the internship does not exist.
-  if (!internship) {
-    const error = new Error("Internship not found");
-    error.statusCode = 404;
-    throw error;
+  if (columns.some((column) => !column)) {
+    throw new ApiError(400, "Invalid internship field");
   }
+
+  const assignments = columns.map((column, index) => `${column} = $${index + 2}`);
+  const values = fields.map((field) => internshipData[field]);
+  assignments.push("updated_at = NOW()");
+
+  const { rows } = await pool.query(
+    `UPDATE internships
+     SET ${assignments.join(", ")}
+     WHERE id = $1
+     RETURNING ${returningColumns}`,
+    [id, ...values],
+  );
+  throwIfMissing(rows[0]);
+
+  return mapInternshipRow(rows[0]);
+};
+
+export const updateInternship = async (id, internshipData) =>
+  updateInternshipFields(id, internshipData);
+
+export const patchInternship = async (id, internshipData) =>
+  updateInternshipFields(id, internshipData);
+
+export const deleteInternship = async (id) => {
+  validateId(id);
+
+  const { rows } = await pool.query("DELETE FROM internships WHERE id = $1 RETURNING id", [id]);
+  throwIfMissing(rows[0]);
 
   return {
-    id: internship._id,
+    id: rows[0].id,
     deleted: true,
   };
 };
-
-// Validate MongoDB ObjectIds before database operations.
-const validateObjectId = (id) => {
-  if (!mongoose.isValidObjectId(id)) {
-    const error = new Error("Invalid internship ID");
-    error.statusCode = 400;
-    throw error;
-  }
-};
-
-// Escape special regular-expression characters in search input.
-const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

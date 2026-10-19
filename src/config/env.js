@@ -7,7 +7,19 @@ const envSchema = z.object({
 
   PORT: z.coerce.number().int().min(1).max(65535).default(5000),
 
-  MONGODB_URI: z.string().min(1, "MONGODB_URI is required"),
+  DATABASE_URL: z
+    .string()
+    .regex(/^postgres(?:ql)?:\/\//i, "DATABASE_URL must be a PostgreSQL connection URL"),
+
+  DB_SSL: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((value) => value === "true"),
+
+  TEST_DATABASE_URL: z
+    .string()
+    .regex(/^postgres(?:ql)?:\/\//i, "TEST_DATABASE_URL must be a PostgreSQL connection URL")
+    .optional(),
 });
 
 // Validate environment variables.
